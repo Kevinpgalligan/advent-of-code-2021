@@ -1,6 +1,3 @@
-;; Debugging todo:
-;;  (1) see if overlap can be found between each pair of scanners in sample
-
 (defparameter *common-beacons-threshold* 12)
 
 (defun make-rotate (rotation-spec)
@@ -17,78 +14,87 @@
 ;; Yay, hard-coding!
 (defparameter *all-rotations*
   (mapcar #'make-rotate
-	  '((x y z) (x y (- z)) (x (- y) z) (x (- y) (- z))
-	    ((- x) y z) ((- x) y (- z)) ((- x) (- y) z) ((- x) (- y) (- z))
-	    (y x z) (y x (- z)) (y (- x) z) (y (- x) (- z))
-	    ((- y) x z) ((- y) x (- z)) ((- y) (- x) z) ((- y) (- x) (- z))
-	    (z y x) (z y (- x)) (z (- y) x) (z (- y) (- x))
-	    ((- z) y x) ((- z) y (- x)) ((- z) (- y) x) ((- z) (- y) (- x)))))
+	  '((x y z) (x (- z) y) (x (- y) (- z)) (x z (- y)) ((- x) (- y) z)
+	    ((- x) (- z) (- y)) ((- x) y (- z)) ((- x) z y) (y x (- z)) (y (- x) z)
+	    (y z x) (y (- z) (- x)) ((- y) x z) ((- y) (- x) (- z))
+	    ((- y) (- z) x) ((- y) z (- x)) (z x y) (z (- x) (- y))
+	    (z (- y) x) (z y (- x)) ((- z) x (- y)) ((- z) (- x) y)
+	    ((- z) y x) ((- z) (- y) (- x)))))
 
 (defun solve (Ss)
-  (let ((final-map (list (pop Ss))))
+  ;; Store each scanner as a list of all its beacons and its coordinates.
+  (let ((final-map (list (list (pop Ss) (make-point 0 0 0)))))
     (loop while Ss
-	  do (let* ((S (pop Ss))
-		    (integrated-S (integrate-scanner S final-map)))
-	       (if integrated-S
-		   (push integrated-S final-map)
-		   ;; Push it to the back of the list, integrate later.
-		   (setf Ss (append Ss (list S))))
+	  do (let* ((S (pop Ss)))
+	       (multiple-value-bind (integrated-S S-coords)
+		   (integrate-scanner S final-map)
+		 (if integrated-S
+		     (push (list integrated-S S-coords) final-map)
+		     ;; Push it to the back of the list, integrate later.
+		     (setf Ss (append Ss (list S)))))
 	       (format t "scanners left: ~a~%" (length Ss))))
-    (length (unique-points (points-sorted (apply #'nconc final-map))))))
+    (values (length (unique-points (points-sorted (apply #'nconc (mapcar #'first final-map)))))
+	    (max-manhattan-distance (mapcar #'second final-map)))))
+
+(defun max-manhattan-distance (points)
+  (loop for P1 in points
+	maximize (loop for P2 in points
+		       maximize (manhattan-distance P1 P2))))
+
+(defun manhattan-distance (P1 P2)
+  (+ (abs (- (x P1) (x P2)))
+     (abs (- (y P1) (y P2)))
+     (abs (- (z P1) (z P2)))))
 
 (defun integrate-scanner (S1 other-scanners)
-  (let ((S1-orientations (all-rotations-of-scanner S1)))
+  (let ((S1-rotations (all-rotations-of-scanner S1)))
     (block result
-      (loop for S2 in other-scanners
-	    do (let ((shifts
-		       (remove-if #'null
-				  (loop for S1-rotated in S1-orientations
-					collect (shift-to-reference-frame S2 S1-rotated)))))
-		 (cond
-		   ;; Try to match it with another scanner!
-		   ((null shifts) nil)
-		   ;; Managed to integrate it!
-		   ((= 1 (length shifts))
-		    (return-from result (car shifts)))
-		   ;; Uh oh, I didn't think this would happen!
-		   (t (error "Multiple viable rotations for a single scanner pair."))))))))
+      (loop for (S2 S2-position) in other-scanners
+	    do (multiple-value-bind (S1-rot offset)
+		   (find-rotation-and-offset S2 S1-rotations)
+		 (when S1-rot
+		   (return-from result (values (loop for P in S1-rot collect (P+ P offset))
+					       offset))))))))
 
 (defun all-rotations-of-scanner (S)
   (loop for rotation in *all-rotations*
 	collect (scanner-apply-function S rotation)))
 
-(defun shift-to-reference-frame (S2 S1)
-  "Shift S1 to the reference frame of S2, if possible. Otherwise return nil."
-  (let ((shift-translation (find-shift-translation (comparison-table S2 S1))))
-    (when shift-translation
-      (scanner-apply-function S1 shift-translation))))
+(defun find-rotation-and-offset (S2 S1-rotations)
+  (loop for S1-rot in S1-rotations
+	for offset = (find-offset S2 S1-rot)
+	when offset
+	  return (values S1-rot offset)))
 
-(defun find-shift-translation (table)
-  "Given a comparison table of 2 scanners, returns the translation needed to shift the 2nd scanner
-to the frame of reference of the first (the offset that gives at least 12 matching beacons).
-If there is no such offset, returns nil.
-If there are multiple viable offsets, errors out."
-  (let ((offset-counts (calculate-offset-counts table)))
+(defun find-offset(S2 S1)
+  (let ((offset-counts (calculate-offset-counts S2 S1)))
+    (loop for offset being each hash-key of offset-counts using (hash-value count)
+	  when (>= count *common-beacons-threshold*)
+	    return (destructuring-bind (x y z)
+		       offset
+		     (make-point x y z)))))
 
-    (let ((viable-offsets
-	    (loop for offset being each hash-key of offset-counts using (hash-value count)
-		  when (>= count *common-beacons-threshold*)
-		    collect offset)))
-      (cond
-	((null viable-offsets) nil)
-	((= 1 (length viable-offsets))
-	 (apply #'make-translate (car viable-offsets)))
-	(t (error "Multiple viable offsets for a single rotation."))))))
-
-(defun calculate-offset-counts (table)
+(defun calculate-offset-counts (S2 S1)
   (let ((offset-counts (make-hash-table :test 'equalp)))
-    (loop for i below (car (array-dimensions table))
-	  collect (loop for j below (cadr (array-dimensions table))
-			collect (let ((offset (aref table i j)))
-				  (setf (gethash offset offset-counts)
-					(1+ (or (gethash offset offset-counts)
-						0))))))
+    (loop for P2 in S2
+	  do (loop for P1 in S1
+		   do (let ((offset (P-offset P2 P1)))
+			(setf (gethash offset offset-counts)
+			      (1+ (or (gethash offset offset-counts) 0))))))
     offset-counts))
+
+(defun P-offset (p1 p2)
+  (list (- (x p1) (x p2)) (- (y p1) (y p2)) (- (z p1) (z p2))))
+
+(defun P+ (P1 P2)
+  (make-point (+ (x P1) (x P2))
+	      (+ (y P1) (y P2))
+	      (+ (z P1) (z P2))))
+
+(defun P- (P1 P2)
+  (make-point (- (x P1) (x P2))
+	      (- (y P1) (y P2))
+	      (- (z P1) (z P2))))
 
 (defun scanner-apply-function (S f)
   (mapcar f S))
@@ -138,12 +144,6 @@ If there are multiple viable offsets, errors out."
 (defun make-point (x y z)
   (make-instance 'point :x x :y y :z z))
 
-(defun make-translate (dx dy dz)
-  (lambda (P)
-    (make-point (+ dx (x P))
-		(+ dy (y P))
-		(+ dz (z P)))))
-
 (defun load-scanners (path)
   (with-open-file (in path)
     (loop for scanner = (read-scanner in)
@@ -172,24 +172,3 @@ If there are multiple viable offsets, errors out."
 			 (substr (subseq string i end-index)))
 		    (setf i (+ end-index (length delimit)))
 		    substr))))
-
-(defun comparison-table (s1 s2)
-  (let ((table (make-array (list (length s1)
-				 (length s2))
-			   :initial-element nil)))
-    (loop for i = 0 then (1+ i)
-	  for p1 in s1
-	  do (loop for j = 0 then (1+ j)
-		   for p2 in s2
-		   do (setf (aref table i j) (P-diff p1 p2))))
-    table))
-
-(defun P-diff (p1 p2)
-  (list (- (x p1) (x p2)) (- (y p1) (y p2)) (- (z p1) (z p2))))
-
-(defun printable-table (table)
-  (loop for i below (car (array-dimensions table))
-	collect (loop for j below (cadr (array-dimensions table))
-		      collect (let ((P (aref table i j)))
-				(list (x P) (y P) (z P))))))
-

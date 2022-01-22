@@ -25,32 +25,44 @@
 	collect (coord (+ dx (cx xy))
 		       (+ dy (cy xy)))))
 
-(defun evolve (live-set algorithm)
-  (let ((dead-cells (make-coord-set))
-	(new-live-set (make-coord-set)))
-    (loop for c in (get-all-coords live-set)
-	  do (let ((neighbours (get-neighbours c)))
-	       (when (should-live-p neighbours algorithm live-set)
-		 (put-coord new-live-set c))
-	       (loop for n in neighbours
-		     do (when (not (containsp live-set n))
-			  (put-coord dead-cells n)))))
-    (loop for c in (get-all-coords dead-cells)
-	  do (let ((neighbours (get-neighbours c)))
-	       (when (should-live-p neighbours algorithm live-set)
-		 (put-coord new-live-set c))))
-    new-live-set))
+(defun evolve (live-set algorithm iterations)
+  (let ((finite-set live-set)
+	(finite-type 'live)
+	(infinite-type 'dead))
+    (loop repeat iterations
+	  do (let ((adjacents (make-coord-set))
+		   (new-finite-set (make-coord-set))
+		   ;; The infinite set is going to switch state, we have to flip the
+		   ;; type of cell we're keeping track of.
+		   (new-finite-type (if (aref algorithm 0) infinite-type finite-type))
+		   (new-infinite-type (if (aref algorithm 0) finite-type infinite-type)))
+	       (loop for c in (get-all-coords finite-set)
+		     do (let ((neighbours (get-neighbours c)))
+			  (when (eq new-finite-type (calculate-new-state neighbours algorithm finite-set finite-type))
+			    (put-coord new-finite-set c))
+			  (loop for n in neighbours
+				do (when (not (containsp finite-set n))
+				     (put-coord adjacents n)))))
+	       (loop for c in (get-all-coords adjacents)
+		     when (eq new-finite-type (calculate-new-state (get-neighbours c) algorithm finite-set finite-type))
+		       do (put-coord new-finite-set c))
+	       (setf finite-set new-finite-set
+		     finite-type new-finite-type
+		     infinite-type new-infinite-type)))
+    finite-set))
 
-(defun should-live-p (neighbours algorithm live-set)
-  (aref algorithm (neighbours->index neighbours live-set)))
+(defun calculate-new-state (neighbours algorithm finite-set finite-type)
+  (if (aref algorithm (neighbours->index neighbours finite-set finite-type))
+      'live
+      'dead))
 
-(defun neighbours->index (neighbours live-set)
-  (let ((index 0))
-    (loop for n in neighbours
-	  for j = 8 then (1- j)
-	  do (when (containsp live-set n)
-	       (setf index (logand index (ash 1 j)))))
-    index))
+(defun neighbours->index (neighbours finite-set finite-type)
+  (loop for n in neighbours
+	for j = 8 then (1- j)
+	when (let ((is-finite-type-p (containsp finite-set n)))
+	       (or (and (eq 'live finite-type) is-finite-type-p)
+		   (and (not (eq 'live finite-type)) (not is-finite-type-p))))
+	  sum (ash 1 j)))
 
 (defun load-input (path)
   (with-open-file (in path)
@@ -71,6 +83,4 @@
 	(values live-set algorithm)))))
 
 (defun solve (live-set algorithm iterations)
-  (loop repeat iterations
-	do (setf live-set (evolve live-set algorithm)))
-  (coord-set-size live-set))
+  (evolve live-set algorithm iterations))

@@ -22,7 +22,7 @@
 
 (defun get-neighbours (g node)
   (with-slots (edges) g
-    (gethash (symbol-name node) edges)))
+    (gethash node edges)))
 
 (defun make-graph (edges depth)
   (let ((g (make-instance 'graph :depth depth)))
@@ -140,15 +140,9 @@
 	always (destination-room? pod position)))
 
 (defun destination-room? (pod pos)
-  (member pos
-	  (list (lower-home-position pod) (upper-home-position pod))
-	  :test 'pos=))
-
-(defun lower-home-position (pod)
-  (make-symbol (concatenate 'string (symbol-name pod) "2")))
-
-(defun upper-home-position (pod)
-  (make-symbol (concatenate 'string (symbol-name pod) "1")))
+  (and
+   (= 2 (length (symbol-name pos)))
+   (string= (symbol-name pod) (subseq (symbol-name pos) 0 1))))
 
 (defun generate-child-states (state graph)
   (let ((positions (state-positions state)))

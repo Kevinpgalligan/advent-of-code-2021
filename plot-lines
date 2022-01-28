@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+find . -name '*.lisp' | xargs wc -l | grep -v total | awk '{ print $2 " " $1 }' | sort | awk 'BEGIN { day=1 } { print day " " $2; day += 1; }' | python3 aocplot.py

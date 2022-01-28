@@ -1,0 +1,331 @@
+#### NOTES ON MONAD PROGRAM
+# Here's MONAD in Python-like syntax, based on
+# what I've gathered from reading the assembly.
+
+    input = [9, ...]
+    offset = [14, ...]
+    zdivide = [1, 1, ...]
+    offset2 = [0, ...]
+    z = 0
+    for k in range(14):
+        condition = (z % 26 + offset[k] != input[k])
+        z /= zdivide[k]
+        if condition:
+            z *= 26
+            z += input[k] + offset2[k]
+
+# z is zero at the end if the division of z outweighs the times where the condition is true.
+# In the last iteration, the input (call it N) can't be equal to z%26-6, 'cause otherwise we'll add N+12 to z and it won't equal 0.
+
+# z is divided 7 times.
+# This may be the key.
+# If z's new value would push z above 26^num_remaining_divisions, then the next input MUST be equal to z%26 + offset[k], as otherwise it will be impossible to reduce z to 0. This allows us to eliminate branches of the search tree.
+
+# Rough algo:
+    def monad_search(z, i, digits, offsets, divides, adds):
+        # We've reached the end.
+        if i >= len(offsets):
+            if z == 0:
+                return digits
+            else:
+                return False
+        for d in [9, 8, 7, ..., 1]:
+            pass = ((z % 26 + offsets[i]) != d)
+            new_z = z // divides[i]
+            if pass:
+                new_z *= 26
+                new_z += d + adds[i]
+            # z can't possibly be 0 at the end.
+            if new_z >= product(divides):
+                continue
+            result = monad_search(new_z, i+1, digits + [d], offsets, divides, adds)
+            if result:
+                return result
+        return False
+
+################################################
+# Aaaand, here's the original MONAD program in #
+# assembly format, with some annotations.      #
+################################################
+
+inp w
+# check if (z%26 + offset) is NOT equal to the new input
+# sometimes it divides z by 26.
+mul x 0
+add x z
+mod x 26
+div z 1
+add x 14
+eql x w
+eql x 0   
+
+# y = 26 if new_value = (z%26 + offset), else 1
+mul y 0
+add y 25  
+mul y x   
+add y 1
+
+# if the new value meets that criteria... multiply z by 26!
+# which means... in the next iteration, we only check if new_value = offset.
+mul z y
+
+# now set y = new_value + offset2
+# if the previous condition is met... set z = z + new_value + offset2
+mul y 0
+add y w
+add y 0
+mul y x
+add z y
+
+###########
+###########
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 1
+add x 13
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 12
+mul y x
+add z y
+
+###########
+###########
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 1
+add x 15
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 14
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 1
+add x 13
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 0
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 26
+add x -2
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 3
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 1
+add x 10
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 15
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 1
+add x 13
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 11
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 26
+add x -15
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 12
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 1
+add x 11
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 1
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 26
+add x -9
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 12
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 26
+add x -9
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 3
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 26
+add x -7
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 10
+mul y x
+add z y
+
+inp w
+mul x 0
+add x z
+mod x 26
+div z 26
+add x -4
+eql x w
+eql x 0
+mul y 0
+add y 25
+mul y x
+add y 1
+mul z y
+mul y 0
+add y w
+add y 14
+mul y x
+add z y
+
+inp w     # (z/26)(25[[z%26-6=N]=0]+1) + [[z%26-6=N]=0](N+12) = 0
+mul x 0   # (z/26)(25[[z%26-6=w]=0]+1) + [[z%26-6=w]=0](w+12) = 0
+add x z   # (z/26)(25[[(x+z)%26-6=w]=0]+1) + [[(x+z)%26-6=w]=0](w+12) = 0
+mod x 26  # (z/26)(25[[x%26-6=w]=0]+1) + [[x%26-6=w]=0](w+12) = 0
+div z 26  # (z/26)(25[[x-6=w]=0]+1) + [[x-6=w]=0](w+12) = 0
+add x -6  # z(25[[x-6=w]=0]+1) + [[x-6=w]=0](w+12) = 0
+eql x w   # z(25[[x=w]=0]+1) + [[x=w]=0](w+12) = 0
+eql x 0   # z(25[x=0]+1) + [x=0](w+12) = 0
+mul y 0   # z(25x+1) + x(w+12) = 0
+add y 25  # z(x(y+25)+1) + x(w+12) = 0
+mul y x   # z(xy+1) + x(w+12) = 0
+add y 1   # z(y+1) + x(w+12) = 0
+mul z y   # zy+x(w+12) = 0
+mul y 0   # z+x(w+12) = 0
+add y w   # z+x(y+w+12) = 0
+add y 12  # z+x(y+12) = 0
+mul y x   # z+xy = 0
+add z y   # z+y = 0
